@@ -13,7 +13,7 @@ from scipy.special import softmax
 from sknetwork.clustering.louvain import Louvain
 from sknetwork.clustering.leiden_core import fit_core
 from sknetwork.clustering.postprocess import reindex_labels
-from sknetwork.utils.check import check_format, check_random_state, check_probs, check_square
+from sknetwork.utils.check import check_format, check_probs, check_square
 from sknetwork.utils.format import directed2undirected
 from sknetwork.utils.membership import membership_matrix
 
@@ -126,6 +126,7 @@ class Leiden(Louvain):
 
     def _refine(self, labels, adjacency):
         refined_labels = np.arange(len(labels), dtype=int)
+        origin = dict()
         values, counts = np.unique(labels, return_counts=True)
         counts = np.cumsum(counts)
         clusters = np.argsort(labels)
@@ -170,9 +171,10 @@ class Leiden(Louvain):
                             refined_labels[i_global] = self.random_state.choice(np.array(list(possibilities.keys())),
                                                                                 p=probs)
                             singleton[refined_labels == refined_labels[i_global]] = 0
-
-
-        return refined_labels
+            origin.update({sub_cluster: value for sub_cluster in set(refined_labels[cluster])})
+        original_labels = [origin[sub_cluster] for sub_cluster in set(refined_labels)]
+        _, refined_labels = np.unique(refined_labels, return_inverse=True)
+        return refined_labels, np.array(original_labels)
 
     def fit(self, adjacency: Union[sparse.csr_matrix, np.ndarray]) -> 'Leiden':
         """Fit algorithm to the data.
@@ -189,7 +191,7 @@ class Leiden(Louvain):
         adjacency = check_format(adjacency)
         check_square(adjacency)
         n = adjacency.shape[0]
-        labels_clust = np.arange(n, dtype=int)
+        labels_start = np.arange(n, dtype=int)
 
         if self.modularity == 'potts':
             probs_ou = check_probs('uniform', adjacency)
@@ -217,14 +219,13 @@ class Leiden(Louvain):
         while increase:
             count_aggregations += 1
 
-            labels_clust, pass_increase = self._optimize(adjacency_clust, probs_ou, probs_in, labels_clust)
+            labels_clust, pass_increase = self._optimize(adjacency_clust, probs_ou, probs_in, labels_start)
             _, labels_clust = np.unique(labels_clust, return_inverse=True)
 
             if pass_increase <= self.tol_aggregation:
                 increase = False
             else:
-                labels_refined = self._refine(labels_clust, adjacency_clust)
-                _, labels_refined = np.unique(labels_refined, return_inverse=True)
+                labels_refined, labels_start = self._refine(labels_clust, adjacency_clust)
                 membership_refined = membership_matrix(labels_refined)
                 membership = membership.dot(membership_refined)
                 adjacency_clust, probs_ou, probs_in = self._aggregate(adjacency_clust, probs_ou, probs_in,
