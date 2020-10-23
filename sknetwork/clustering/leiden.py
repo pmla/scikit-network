@@ -136,15 +136,14 @@ class Leiden(Louvain):
         for value in values:
             cluster = clusters[first_count:last_count]
             sub_clusters = refined_labels[cluster]
-            sub_adjacency = adjacency[cluster, :].tocsc()[:, cluster].tocsr()
             tot_cluster_weight = adjacency[cluster, :].sum()
             if value < values[-1]:
                 first_count, last_count = counts[value], counts[value + 1]
-            for i_sub, i_global in enumerate(cluster):
+            for i_global in cluster:
                 node_weight = adjacency[i_global, :].sum()
                 node_cluster = labels[i_global]
-                if (sub_adjacency[i_sub, :].sum()
-                    - sub_adjacency[i_sub, i_sub]) >= self.resolution * node_weight \
+                if (adjacency[i_global, cluster].sum()
+                    - adjacency[i_global, i_global]) >= self.resolution * node_weight \
                     * (tot_cluster_weight - node_weight):
                     if singleton[i_global]:
                         possibilities = dict()
@@ -155,14 +154,12 @@ class Leiden(Louvain):
                         for sub_cluster in sub_clusters:
                             if sub_cluster != node_cluster:
                                 global_mask = (refined_labels == sub_cluster)
-                                sub_mask = global_mask[cluster]
                                 sub_cluster_weight = adjacency[global_mask, global_mask].sum()
-                                if (sub_adjacency[sub_mask, :].sum()
-                                    - sub_adjacency[sub_mask, sub_mask].sum()) >= self.resolution \
+                                if adjacency[~global_mask, :][:, global_mask].sum() >= self.resolution \
                                     * sub_cluster_weight * (tot_cluster_weight - sub_cluster_weight):
                                     delta_in = adjacency[i_global, global_mask].sum() \
-                                               - self.resolution * node_weight * adjacency[global_mask,
-                                                                                           global_mask].sum() / \
+                                               - self.resolution * node_weight \
+                                               * adjacency[global_mask, :][:, global_mask].sum() / \
                                                tot_weight
                                     if delta_in > delta_out:
                                         possibilities[sub_cluster] = (delta_in - delta_out) / self.random_factor
