@@ -81,7 +81,8 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
     while not nodes.empty():
         increase_pass = 0
 
-        i = nodes.pop()
+        i = nodes.front()
+        nodes.pop()
         queue_elements.erase(i)
         unique_clusters.clear()
         cluster_node = labels[i]
@@ -128,7 +129,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                 in_clusters_weights[cluster_best] += node_prob_in
                 labels[i] = cluster_best
                 for j in range(j1, j2):
-                    if label[indices[j]] != cluster_best and queue_elements.find(indices[j]) == queue_elements.end():
+                    if labels[indices[j]] != cluster_best and queue_elements.find(indices[j]) == queue_elements.end():
                         queue_elements.insert(indices[j])
                         nodes.push(indices[j])
 
