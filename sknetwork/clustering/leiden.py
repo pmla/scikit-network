@@ -8,6 +8,7 @@ from typing import Union, Optional
 
 import numpy as np
 from scipy import sparse
+from scipy.special import softmax
 
 from sknetwork.clustering.louvain import Louvain
 from sknetwork.clustering.leiden_core import fit_core
@@ -75,17 +76,20 @@ class Leiden(Louvain):
       <https://www.nature.com/articles/s41598-019-41695-z>`_
       Scientific reports, 9(1), 1-12.
     """
-    def __init__(self, resolution: float = 1, modularity: str = 'dugue', tol_optimization: float = 1e-3,
-                 tol_aggregation: float = 1e-3, n_aggregations: int = -1, shuffle_nodes: bool = False,
-                 sort_clusters: bool = True, return_membership: bool = True, return_aggregate: bool = True,
-                 random_state: Optional[Union[np.random.RandomState, int]] = None, verbose: bool = False):
+
+    def __init__(self, resolution: float = 1, random_factor = 1, modularity: str = 'dugue',
+                 tol_optimization: float = 1e-3, tol_aggregation: float = 1e-3, n_aggregations: int = -1,
+                 shuffle_nodes: bool = False, sort_clusters: bool = True, return_membership: bool = True,
+                 return_aggregate: bool = True, random_state: Optional[Union[np.random.RandomState, int]] = None,
+                 verbose: bool = False):
         super(Leiden, self).__init__(resolution=resolution, modularity=modularity, tol_optimization=tol_optimization,
                                      tol_aggregation=tol_aggregation, n_aggregations=n_aggregations,
                                      shuffle_nodes=shuffle_nodes, sort_clusters=sort_clusters,
                                      return_membership=return_membership, return_aggregate=return_aggregate,
                                      random_state=random_state, verbose=verbose)
+        self.random_factor = random_factor
 
-    def _optimize(self, adjacency_norm, probs_ou, probs_in):
+    def _optimize(self, adjacency_norm, probs_ou, probs_in, labels):
         """One local optimization pass of the Leiden algorithm
 
         Parameters
@@ -115,10 +119,60 @@ class Leiden(Louvain):
         indices: np.ndarray = adjacency.indices.astype(np.int32)
         data: np.ndarray = adjacency.data.astype(np.float32)
 
-        return fit_core(self.resolution, self.tol, node_probs_ou, node_probs_in, self_loops, data, indices, indptr)
+        labels = labels.astype(np.int32)
 
+        return fit_core(self.resolution, self.tol, node_probs_ou, node_probs_in,
+                        self_loops, data, indices, indptr, labels)
 
-    def fit(self, adjacency: Union[sparse.csr_matrix, np.ndarray]) -> 'Louvain':
+    def _refine(self, labels, adjacency):
+        refined_labels = np.arange(len(labels), dtype=int)
+        values, counts = np.unique(labels, return_counts=True)
+        counts = np.cumsum(counts)
+        clusters = np.argsort(labels)
+        singleton = np.ones(len(labels), dtype=bool)
+        first_count, last_count = 0, counts[0]
+        tot_weight = adjacency.sum()
+        for value in values:
+            cluster = clusters[first_count:last_count]
+            sub_clusters = refined_labels[cluster]
+            sub_adjacency = adjacency[cluster, :].tocsc()[:, cluster].tocsr()
+            tot_cluster_weight = adjacency[cluster, :].sum()
+            if value < values[-1]:
+                first_count, last_count = counts[value], counts[value + 1]
+            for i_sub, i_global in enumerate(cluster):
+                node_weight = adjacency[i_global, :].sum()
+                node_cluster = labels[i_global]
+                if (sub_adjacency[i_sub, :].sum()
+                    - sub_adjacency[i_sub, i_sub]) >= self.resolution * node_weight \
+                    * (tot_cluster_weight - node_weight):
+                    if singleton[i_global]:
+                        possibilities = dict()
+                        node_mask = (refined_labels == node_cluster)
+                        delta_out = adjacency[i_global, node_mask].sum() - self.resolution * \
+                                        node_weight * adjacency[
+                                        node_mask, node_mask].sum() / tot_weight
+                        for sub_cluster in sub_clusters:
+                            if sub_cluster != node_cluster:
+                                global_mask = (refined_labels == sub_cluster)
+                                sub_mask = global_mask[cluster]
+                                sub_cluster_weight = adjacency[global_mask, global_mask].sum()
+                                if (sub_adjacency[sub_mask, :].sum()
+                                    - sub_adjacency[sub_mask, sub_mask].sum()) >= self.resolution \
+                                    * sub_cluster_weight * (tot_cluster_weight - sub_cluster_weight):
+                                    delta_in = adjacency[i_global, global_mask].sum() \
+                                               - self.resolution * node_weight * adjacency[global_mask,
+                                                                                           global_mask].sum() / \
+                                               tot_weight
+                                    if delta_in > delta_out:
+                                        possibilities[sub_cluster] = (delta_in - delta_out) / self.random_factor
+                        if possibilities:
+                            probs = softmax(np.array(list(possibilities.values())))
+                            refined_labels[i_global] = self.random_state.choice(np.array(list(possibilities.keys())),
+                                                                                p=probs)
+
+        return refined_labels
+
+    def fit(self, adjacency: Union[sparse.csr_matrix, np.ndarray]) -> 'Leiden':
         """Fit algorithm to the data.
 
         Parameters
@@ -133,6 +187,7 @@ class Leiden(Louvain):
         adjacency = check_format(adjacency)
         check_square(adjacency)
         n = adjacency.shape[0]
+        labels_clust = np.arange(n, dtype=int)
 
         if self.modularity == 'potts':
             probs_ou = check_probs('uniform', adjacency)
@@ -160,16 +215,18 @@ class Leiden(Louvain):
         while increase:
             count_aggregations += 1
 
-            labels_clust, pass_increase = self._optimize(adjacency_clust, probs_ou, probs_in)
+            labels_clust, pass_increase = self._optimize(adjacency_clust, probs_ou, probs_in, labels_clust)
             _, labels_clust = np.unique(labels_clust, return_inverse=True)
 
             if pass_increase <= self.tol_aggregation:
                 increase = False
             else:
-                membership_clust = membership_matrix(labels_clust)
-                membership = membership.dot(membership_clust)
+                labels_refined = self._refine(labels_clust, adjacency_clust)
+                _, labels_refined = np.unique(labels_refined, return_inverse=True)
+                membership_refined = membership_matrix(labels_refined)
+                membership = membership.dot(membership_refined)
                 adjacency_clust, probs_ou, probs_in = self._aggregate(adjacency_clust, probs_ou, probs_in,
-                                                                      membership_clust)
+                                                                      membership_refined)
 
                 n = adjacency_clust.shape[0]
                 if n == 1:
@@ -192,4 +249,3 @@ class Leiden(Louvain):
         self._secondary_outputs(adjacency)
 
         return self
-

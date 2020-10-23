@@ -11,7 +11,7 @@ cimport cython
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_node_probs, float[:] self_loops,
-             float[:] data, int[:] indices, int[:] indptr):  # pragma: no cover
+             float[:] data, int[:] indices, int[:] indptr, int[:] labels_array):  # pragma: no cover
     """Fit the clusters to the objective function.
 
     Parameters
@@ -73,7 +73,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
     for i in range(n):
         nodes.push(i)
         queue_elements.insert(i)
-        labels.push_back(i)
+        labels.push_back(labels_array[i])
         neighbor_clusters_weights.push_back(0.)
         ou_clusters_weights.push_back(ou_node_probs[i])
         in_clusters_weights.push_back(in_node_probs[i])
