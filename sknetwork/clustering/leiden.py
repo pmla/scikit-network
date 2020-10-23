@@ -169,6 +169,8 @@ class Leiden(Louvain):
                             probs = softmax(np.array(list(possibilities.values())))
                             refined_labels[i_global] = self.random_state.choice(np.array(list(possibilities.keys())),
                                                                                 p=probs)
+                            singleton[refined_labels == refined_labels[i_global]] = 0
+
 
         return refined_labels
 
