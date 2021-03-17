@@ -124,55 +124,6 @@ class Leiden(Louvain):
         return fit_core(self.resolution, self.tol, node_probs_ou, node_probs_in,
                         self_loops, data, indices, indptr, labels)
 
-    def _refine(self, labels, adjacency):
-        refined_labels = np.arange(len(labels), dtype=int)
-        origin = dict()
-        values, counts = np.unique(labels, return_counts=True)
-        counts = np.cumsum(counts)
-        clusters = np.argsort(labels)
-        singleton = np.ones(len(labels), dtype=bool)
-        first_count, last_count = 0, counts[0]
-        tot_weight = adjacency.sum()
-        for value in values:
-            cluster = clusters[first_count:last_count]
-            sub_clusters = refined_labels[cluster]
-            tot_cluster_weight = adjacency[cluster, :].sum()
-            if value < values[-1]:
-                first_count, last_count = counts[value], counts[value + 1]
-            for i_global in cluster:
-                node_weight = adjacency[i_global, :].sum()
-                node_cluster = labels[i_global]
-                if (adjacency[i_global, cluster].sum()
-                    - adjacency[i_global, i_global]) >= self.resolution * node_weight \
-                    * (tot_cluster_weight - node_weight):
-                    if singleton[i_global]:
-                        possibilities = dict()
-                        node_mask = (refined_labels == node_cluster)
-                        delta_out = adjacency[i_global, node_mask].sum() - self.resolution * \
-                                        node_weight * adjacency[
-                                        node_mask, node_mask].sum() / tot_weight
-                        for sub_cluster in sub_clusters:
-                            if sub_cluster != node_cluster:
-                                global_mask = (refined_labels == sub_cluster)
-                                sub_cluster_weight = adjacency[global_mask, global_mask].sum()
-                                if adjacency[~global_mask, :][:, global_mask].sum() >= self.resolution \
-                                    * sub_cluster_weight * (tot_cluster_weight - sub_cluster_weight):
-                                    delta_in = adjacency[i_global, global_mask].sum() \
-                                               - self.resolution * node_weight \
-                                               * adjacency[global_mask, :][:, global_mask].sum() / \
-                                               tot_weight
-                                    if delta_in > delta_out:
-                                        possibilities[sub_cluster] = (delta_in - delta_out) / self.random_factor
-                        if possibilities:
-                            probs = softmax(np.array(list(possibilities.values())))
-                            refined_labels[i_global] = self.random_state.choice(np.array(list(possibilities.keys())),
-                                                                                p=probs)
-                            singleton[refined_labels == refined_labels[i_global]] = 0
-            origin.update({sub_cluster: value for sub_cluster in set(refined_labels[cluster])})
-        original_labels = [origin[sub_cluster] for sub_cluster in set(refined_labels)]
-        _, refined_labels = np.unique(refined_labels, return_inverse=True)
-        return refined_labels, np.array(original_labels)
-
     def fit(self, adjacency: Union[sparse.csr_matrix, np.ndarray]) -> 'Leiden':
         """Fit algorithm to the data.
 
@@ -222,11 +173,10 @@ class Leiden(Louvain):
             if pass_increase <= self.tol_aggregation:
                 increase = False
             else:
-                labels_refined, labels_start = self._refine(labels_clust, adjacency_clust)
-                membership_refined = membership_matrix(labels_refined)
-                membership = membership.dot(membership_refined)
+                membership_clust = membership_matrix(labels_clust)
+                membership = membership.dot(membership_clust)
                 adjacency_clust, probs_ou, probs_in = self._aggregate(adjacency_clust, probs_ou, probs_in,
-                                                                      membership_refined)
+                                                                      membership_clust)
 
                 n = adjacency_clust.shape[0]
                 if n == 1:
