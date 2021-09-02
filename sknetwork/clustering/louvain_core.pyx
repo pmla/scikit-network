@@ -2,6 +2,7 @@
 # cython: language_level=3
 # cython: linetrace=True
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
+from libc.stdlib cimport rand, srand
 from libcpp.set cimport set
 from libcpp.vector cimport vector
 cimport cython
@@ -12,8 +13,18 @@ ctypedef fused int_or_long:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef inline int_or_long randint(int_or_long lower, int_or_long upper) nogil:
+    if upper == lower:
+        return lower
+    else:
+        return ( rand() % (upper - lower) ) + lower
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_node_probs, float[:] self_loops,
-             float[:] data, int_or_long[:] indices, int_or_long[:] indptr):  # pragma: no cover
+             float[:] data, int_or_long[:] indices, int_or_long[:] indptr, bint random_move, int_or_long seed):  # pragma: no cover
     """Fit the clusters to the objective function.
 
     Parameters
@@ -70,6 +81,8 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
     cdef vector[float] in_clusters_weights
     cdef set[int_or_long] unique_clusters = ()
 
+    srand(seed)
+
     for i in range(n):
         labels.push_back(i)
         neighbor_clusters_weights.push_back(0.)
@@ -81,50 +94,91 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
         increase_pass = 0
 
         for i in range(n):
-            unique_clusters.clear()
             cluster_node = labels[i]
             j1 = indptr[i]
             j2 = indptr[i + 1]
 
-            for j in range(j1, j2):
-                label = labels[indices[j]]
-                neighbor_clusters_weights[label] += data[j]
-                unique_clusters.insert(label)
+            if random_move:
 
-            unique_clusters.erase(cluster_node)
+                j = indices[randint(j1, j2)]
+                cluster = labels[j]
 
-            if not unique_clusters.empty():
-                node_prob_ou = ou_node_probs[i]
-                node_prob_in = in_node_probs[i]
-                ratio_ou = resolution * node_prob_ou
-                ratio_in = resolution * node_prob_in
+                if cluster != cluster_node:
 
-                delta_exit = 2 * (neighbor_clusters_weights[cluster_node] - self_loops[i])
-                delta_exit -= ratio_ou * (in_clusters_weights[cluster_node] - node_prob_in)
-                delta_exit -= ratio_in * (ou_clusters_weights[cluster_node] - node_prob_ou)
+                    for j in range(j1, j2):
+                        if labels[indices[j]] == cluster:
+                            neighbor_clusters_weights[cluster] += data[j]
+                        if labels[indices[j]] == cluster_node:
+                            neighbor_clusters_weights[cluster_node] += data[j]
 
-                delta_best = 0
-                cluster_best = cluster_node
+                    node_prob_ou = ou_node_probs[i]
+                    node_prob_in = in_node_probs[i]
+                    ratio_ou = resolution * node_prob_ou
+                    ratio_in = resolution * node_prob_in
 
-                for cluster in unique_clusters:
+                    delta_exit = 2 * (neighbor_clusters_weights[cluster_node] - self_loops[i])
+                    delta_exit -= ratio_ou * (in_clusters_weights[cluster_node] - node_prob_in)
+                    delta_exit -= ratio_in * (ou_clusters_weights[cluster_node] - node_prob_ou)
+
                     delta = 2 * neighbor_clusters_weights[cluster]
                     delta -= ratio_ou * in_clusters_weights[cluster]
                     delta -= ratio_in * ou_clusters_weights[cluster]
 
                     delta_local = delta - delta_exit
-                    if delta_local > delta_best:
-                        delta_best = delta_local
-                        cluster_best = cluster
+
+                    if delta_local > 0:
+                        increase_pass += delta_local
+                        ou_clusters_weights[cluster_node] -= node_prob_ou
+                        in_clusters_weights[cluster_node] -= node_prob_in
+                        ou_clusters_weights[cluster] += node_prob_ou
+                        in_clusters_weights[cluster] += node_prob_in
+                        labels[i] = cluster
 
                     neighbor_clusters_weights[cluster] = 0
 
-                if delta_best > 0:
-                    increase_pass += delta_best
-                    ou_clusters_weights[cluster_node] -= node_prob_ou
-                    in_clusters_weights[cluster_node] -= node_prob_in
-                    ou_clusters_weights[cluster_best] += node_prob_ou
-                    in_clusters_weights[cluster_best] += node_prob_in
-                    labels[i] = cluster_best
+            else:
+
+                for j in range(j1, j2):
+                    label = labels[indices[j]]
+                    neighbor_clusters_weights[label] += data[j]
+                    unique_clusters.insert(label)
+
+                unique_clusters.erase(cluster_node)
+
+                if not unique_clusters.empty():
+                    node_prob_ou = ou_node_probs[i]
+                    node_prob_in = in_node_probs[i]
+                    ratio_ou = resolution * node_prob_ou
+                    ratio_in = resolution * node_prob_in
+
+                    delta_exit = 2 * (neighbor_clusters_weights[cluster_node] - self_loops[i])
+                    delta_exit -= ratio_ou * (in_clusters_weights[cluster_node] - node_prob_in)
+                    delta_exit -= ratio_in * (ou_clusters_weights[cluster_node] - node_prob_ou)
+
+                    delta_best = 0
+                    cluster_best = cluster_node
+
+                    for cluster in unique_clusters:
+                        delta = 2 * neighbor_clusters_weights[cluster]
+                        delta -= ratio_ou * in_clusters_weights[cluster]
+                        delta -= ratio_in * ou_clusters_weights[cluster]
+
+                        delta_local = delta - delta_exit
+                        if delta_local > delta_best:
+                            delta_best = delta_local
+                            cluster_best = cluster
+
+                        neighbor_clusters_weights[cluster] = 0
+
+                    if delta_best > 0:
+                        increase_pass += delta_best
+                        ou_clusters_weights[cluster_node] -= node_prob_ou
+                        in_clusters_weights[cluster_node] -= node_prob_in
+                        ou_clusters_weights[cluster_best] += node_prob_ou
+                        in_clusters_weights[cluster_best] += node_prob_in
+                        labels[i] = cluster_best
+
+                    unique_clusters.clear()
 
             neighbor_clusters_weights[cluster_node] = 0
 

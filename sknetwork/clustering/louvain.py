@@ -38,6 +38,8 @@ class Louvain(BaseClustering, VerboseMixin):
         A negative value is interpreted as no limit.
     shuffle_nodes :
         Enables node shuffling before optimization.
+    random_move :
+        In the optimization phase, a random neighbor candidate is picked rather than looking at the whole neighborhood
     sort_clusters :
         If ``True``, sort labels in decreasing order of cluster size.
     return_membership :
@@ -92,9 +94,15 @@ class Louvain(BaseClustering, VerboseMixin):
       `Narrow scope for resolution-limit-free community detection.
       <https://arxiv.org/pdf/1104.3083.pdf>`_
       Physical Review E, 84(1), 016114.
+
+    * Traag, V. A. (2015).
+      `Faster unfolding of communities: Speeding up the Louvain algorithm.
+      <https://arxiv.org/pdf/1503.01322.pdf>`_
+      Physical Review E, 92(3), 032801.
     """
     def __init__(self, resolution: float = 1, modularity: str = 'dugue', tol_optimization: float = 1e-3,
                  tol_aggregation: float = 1e-3, n_aggregations: int = -1, shuffle_nodes: bool = False,
+                 random_move: bool = False,
                  sort_clusters: bool = True, return_membership: bool = True, return_aggregate: bool = True,
                  random_state: Optional[Union[np.random.RandomState, int]] = None, verbose: bool = False):
         super(Louvain, self).__init__(sort_clusters=sort_clusters, return_membership=return_membership,
@@ -107,6 +115,7 @@ class Louvain(BaseClustering, VerboseMixin):
         self.tol_aggregation = tol_aggregation
         self.n_aggregations = n_aggregations
         self.shuffle_nodes = shuffle_nodes
+        self.random_move = random_move
         self.random_state = check_random_state(random_state)
         self.bipartite = None
 
@@ -140,7 +149,11 @@ class Louvain(BaseClustering, VerboseMixin):
         indices: np.ndarray = adjacency.indices
         data: np.ndarray = adjacency.data.astype(np.float32)
 
-        return fit_core(self.resolution, self.tol, node_probs_ou, node_probs_in, self_loops, data, indices, indptr)
+        # fixing the random seed from the random state for the random neighbor case
+        seed = self.random_state.get_state()[1][0] % 2**15
+
+        return fit_core(self.resolution, self.tol, node_probs_ou, node_probs_in, self_loops,
+                        data, indices, indptr, self.random_move, seed)
 
     @staticmethod
     def _aggregate(adjacency_norm, probs_out, probs_in, membership: Union[sparse.csr_matrix, np.ndarray]):

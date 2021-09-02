@@ -55,6 +55,11 @@ class TestLouvainClustering(unittest.TestCase):
         labels = louvain.fit_transform(adjacency)
         self.assertEqual(len(set(labels)), 9)
 
+        #random neighbor
+        louvain = Louvain(resolution=2, random_move=True, random_state=42)
+        labels = louvain.fit_transform(adjacency)
+        self.assertEqual(len(set(labels)), 7)
+
         # aggregate graph
         louvain = Louvain(return_aggregate=True)
         labels = louvain.fit_transform(adjacency)
