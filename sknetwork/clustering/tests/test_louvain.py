@@ -55,10 +55,8 @@ class TestLouvainClustering(unittest.TestCase):
         labels = louvain.fit_transform(adjacency)
         self.assertEqual(len(set(labels)), 9)
 
-        #random neighbor
-        louvain = Louvain(resolution=2, random_move=True, random_state=42)
-        labels = louvain.fit_transform(adjacency)
-        self.assertEqual(len(set(labels)), 7)
+        # aggregate graph
+        Louvain(n_aggregations=1, sort_clusters=False).fit(adjacency)
 
         # aggregate graph
         louvain = Louvain(return_aggregate=True)
@@ -66,8 +64,21 @@ class TestLouvainClustering(unittest.TestCase):
         n_labels = len(set(labels))
         self.assertEqual(louvain.aggregate_.shape, (n_labels, n_labels))
 
-        # aggregate graph
-        Louvain(n_aggregations=1, sort_clusters=False).fit(adjacency)
+    def test_speed_up_moves(self):
+        adjacency = karate_club()
+
+        #random and fast moves
+        louvain = Louvain(resolution=2, random_move=True, random_state=42)
+        labels = louvain.fit_transform(adjacency)
+        self.assertEqual(len(set(labels)), 7)
+
+        louvain = Louvain(resolution=2, fast_move=True, random_state=42)
+        labels = louvain.fit_transform(adjacency)
+        self.assertEqual(len(set(labels)), 7)
+
+        louvain = Louvain(resolution=2, random_move=True, fast_move=True, random_state=42)
+        labels = louvain.fit_transform(adjacency)
+        self.assertEqual(len(set(labels)), 6)
 
     def test_options_with_64_bit(self):
         adjacency = karate_club()

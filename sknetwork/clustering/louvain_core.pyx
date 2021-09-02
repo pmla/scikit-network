@@ -5,6 +5,7 @@
 from libc.stdlib cimport rand, srand
 from libcpp.set cimport set
 from libcpp.vector cimport vector
+from libcpp.queue cimport queue
 cimport cython
 
 ctypedef fused int_or_long:
@@ -24,7 +25,8 @@ cdef inline int_or_long randint(int_or_long lower, int_or_long upper) nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_node_probs, float[:] self_loops,
-             float[:] data, int_or_long[:] indices, int_or_long[:] indptr, bint random_move, int_or_long seed):  # pragma: no cover
+             float[:] data, int_or_long[:] indices, int_or_long[:] indptr, bint random_move, bint fast_move,
+             int_or_long seed):  # pragma: no cover
     """Fit the clusters to the objective function.
 
     Parameters
@@ -45,6 +47,12 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
         CSR format index array of the normalized adjacency matrix.
     indptr :
         CSR format index pointer array of the normalized adjacency matrix.
+    random_move :
+        Enables a random neighbor candidate to be picked rather than looking at the whole neighborhood
+    fast_move :
+        Enables iterations on nodes whose neighborhood has been changed only
+    seed :
+        Random seed to be used (inferred from the random_state of the Louvain instance)
 
     Returns
     -------
@@ -75,25 +83,40 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
     cdef float ratio_in
     cdef float ratio_ou
 
+    cdef queue[int_or_long] nodes
+    cdef queue[int_or_long] next_nodes
     cdef vector[int_or_long] labels
     cdef vector[float] neighbor_clusters_weights
     cdef vector[float] ou_clusters_weights
     cdef vector[float] in_clusters_weights
     cdef set[int_or_long] unique_clusters = ()
+    cdef set[int] queue_elements = ()
 
     srand(seed)
 
     for i in range(n):
+        next_nodes.push(i)
+        queue_elements.insert(i)
         labels.push_back(i)
         neighbor_clusters_weights.push_back(0.)
         ou_clusters_weights.push_back(ou_node_probs[i])
         in_clusters_weights.push_back(in_node_probs[i])
 
-    while increase == 1:
+    while increase == 1 and not next_nodes.empty():
         increase = 0
         increase_pass = 0
 
-        for i in range(n):
+        nodes = next_nodes
+        next_nodes.swap(queue[int_or_long]())
+
+        while not nodes.empty():
+
+            i = nodes.front()
+            nodes.pop()
+            if fast_move:
+                queue_elements.erase(i)
+            else:
+                next_nodes.push(i)
             cluster_node = labels[i]
             j1 = indptr[i]
             j2 = indptr[i + 1]
@@ -133,6 +156,12 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                         ou_clusters_weights[cluster] += node_prob_ou
                         in_clusters_weights[cluster] += node_prob_in
                         labels[i] = cluster
+                        if fast_move:
+                            for j in range(j1, j2):
+                                if labels[indices[j]] != cluster and \
+                                    queue_elements.find(indices[j]) == queue_elements.end():
+                                    queue_elements.insert(indices[j])
+                                    next_nodes.push(indices[j])
 
                     neighbor_clusters_weights[cluster] = 0
 
@@ -177,6 +206,12 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                         ou_clusters_weights[cluster_best] += node_prob_ou
                         in_clusters_weights[cluster_best] += node_prob_in
                         labels[i] = cluster_best
+                        if fast_move:
+                            for j in range(j1, j2):
+                                if labels[indices[j]] != cluster_best and \
+                                    queue_elements.find(indices[j]) == queue_elements.end():
+                                    queue_elements.insert(indices[j])
+                                    next_nodes.push(indices[j])
 
                     unique_clusters.clear()
 
