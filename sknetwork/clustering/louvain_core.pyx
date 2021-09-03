@@ -25,8 +25,8 @@ cdef inline int_or_long randint(int_or_long lower, int_or_long upper) nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_node_probs, float[:] self_loops,
-             float[:] data, int_or_long[:] indices, int_or_long[:] indptr, bint random_move, bint fast_move,
-             int_or_long seed):  # pragma: no cover
+             float[:] data, int_or_long[:] indices, int_or_long[:] indptr, int_or_long[:] labels_array,
+             bint random_move, bint fast_move, int_or_long seed):  # pragma: no cover
     """Fit the clusters to the objective function.
 
     Parameters
@@ -47,6 +47,8 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
         CSR format index array of the normalized adjacency matrix.
     indptr :
         CSR format index pointer array of the normalized adjacency matrix.
+    labels_array:
+        Pre-existing labels of the nodes
     random_move :
         Enables a random neighbor candidate to be picked rather than looking at the whole neighborhood
     fast_move :
@@ -97,7 +99,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
     for i in range(n):
         next_nodes.push(i)
         queue_elements.insert(i)
-        labels.push_back(i)
+        labels.push_back(labels_array[i])
         neighbor_clusters_weights.push_back(0.)
         ou_clusters_weights.push_back(ou_node_probs[i])
         in_clusters_weights.push_back(in_node_probs[i])
