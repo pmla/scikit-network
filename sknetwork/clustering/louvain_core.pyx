@@ -24,9 +24,9 @@ cdef inline int_or_long randint(int_or_long lower, int_or_long upper) nogil:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_node_probs, float[:] self_loops,
-             float[:] data, int_or_long[:] indices, int_or_long[:] indptr, int_or_long[:] labels_array,
-             bint random_move, bint fast_move, int_or_long seed):  # pragma: no cover
+def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_node_probs, float[:] ou_cluster_probs,
+             float[:] in_cluster_probs, float[:] self_loops, float[:] data, int_or_long[:] indices,
+             int_or_long[:] indptr, int_or_long[:] labels_array, bint random_move, bint fast_move, int_or_long seed):  # pragma: no cover
     """Fit the clusters to the objective function.
 
     Parameters
@@ -39,6 +39,10 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
         Distribution of node weights based on their out-edges (sums to 1).
     in_node_probs :
         Distribution of node weights based on their in-edges (sums to 1).
+    ou_cluster_probs:
+        Initial out-degrees of the clusters
+    in_cluster_probs:
+        Initial in-degrees of the clusters
     self_loops :
         Weights of self loops.
     data :
@@ -64,6 +68,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
         Score of the clustering (total increase in modularity).
     """
     cdef int_or_long n = indptr.shape[0] - 1
+    cdef int_or_long n_clusters = in_node_probs.shape[0]
     cdef int_or_long increase = 1
     cdef int_or_long cluster
     cdef int_or_long cluster_best
@@ -96,13 +101,15 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
 
     srand(seed)
 
+    for i in range(n_clusters):
+        neighbor_clusters_weights.push_back(0.)
+        ou_clusters_weights.push_back(ou_cluster_probs[i])
+        in_clusters_weights.push_back(in_cluster_probs[i])
+
     for i in range(n):
         next_nodes.push(i)
         queue_elements.insert(i)
         labels.push_back(labels_array[i])
-        neighbor_clusters_weights.push_back(0.)
-        ou_clusters_weights.push_back(ou_node_probs[i])
-        in_clusters_weights.push_back(in_node_probs[i])
 
     while increase == 1 and not next_nodes.empty():
         increase = 0

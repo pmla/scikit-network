@@ -135,7 +135,7 @@ class Louvain(BaseClustering, VerboseMixin):
         self.random_state = check_random_state(random_state)
         self.bipartite = None
 
-    def _optimize(self, adjacency_norm, probs_ou, probs_in, labels):
+    def _optimize(self, adjacency_norm, probs_ou, probs_in, cluster_probs_ou=None, cluster_probs_in=None, labels=None):
         """One local optimization pass of the Louvain algorithm
 
         Parameters
@@ -146,8 +146,12 @@ class Louvain(BaseClustering, VerboseMixin):
             the array of degrees of the adjacency
         probs_in :
             the array of degrees of the transpose of the adjacency
+        cluster_probs_ou:
+            the array of out-degrees of the clusters (``probs``_ou if ``None``)
+        cluster_probs_in:
+            the array of in-degrees of the clusters (``probs_in`` if ``None``)
         labels :
-            the pre-existing labels of the nodes
+            the pre-existing labels of the nodes (``range(n)`` if ``None``)
 
         Returns
         -------
@@ -158,6 +162,12 @@ class Louvain(BaseClustering, VerboseMixin):
         """
         node_probs_in = probs_in.astype(np.float32)
         node_probs_ou = probs_ou.astype(np.float32)
+        if cluster_probs_in is None:
+            cluster_probs_ou = probs_ou.copy()
+            cluster_probs_in = probs_in.copy()
+            labels = np.arange(node_probs_in.shape[0], dtype=int)
+        cluster_probs_in = cluster_probs_in.astype(np.float32)
+        cluster_probs_ou = cluster_probs_ou.astype(np.float32)
 
         adjacency = 0.5 * directed2undirected(adjacency_norm)
 
@@ -169,10 +179,10 @@ class Louvain(BaseClustering, VerboseMixin):
         labels: np.ndarray = labels.astype(type(indptr[0]))
 
         # fixing the random seed from the random state for the random neighbor case
-        seed = self.random_state.get_state()[1][0] % 2**15
+        seed = self.random_state.get_state()[1][0] % 2 ** 15
 
-        return fit_core(self.resolution, self.tol, node_probs_ou, node_probs_in, self_loops,
-                        data, indices, indptr, labels, self.random_move, self.fast_move, seed)
+        return fit_core(self.resolution, self.tol, node_probs_ou, node_probs_in, cluster_probs_ou, cluster_probs_in,
+                        self_loops, data, indices, indptr, labels, self.random_move, self.fast_move, seed)
 
     @staticmethod
     def _aggregate(adjacency_norm, probs_ou, probs_in, membership: Union[sparse.csr_matrix, np.ndarray]):
@@ -224,7 +234,6 @@ class Louvain(BaseClustering, VerboseMixin):
             for cluster in range(n_clusters):
                 mask = labels_cluster == cluster
                 sub_adjacency = adjacency_norm[mask, :][:, mask]
-                local_labels_refined = np.arange(sub_adjacency.shape[0], dtype=int)
                 if sub_adjacency.data.any():
                     if self.modularity == 'potts':
                         sub_probs_ou = get_probs('uniform', sub_adjacency)
@@ -238,15 +247,15 @@ class Louvain(BaseClustering, VerboseMixin):
                     else:
                         raise ValueError('Unknown modularity function.')
                     sub_adjacency /= sub_adjacency.data.sum()
-                    local_labels_refined, _ = self._optimize(sub_adjacency, sub_probs_ou, sub_probs_in,
-                                                             local_labels_refined)
+                    local_labels_refined, _ = self._optimize(sub_adjacency, sub_probs_ou, sub_probs_in)
+                else:
+                    local_labels_refined = np.arange(sub_adjacency.shape[0], dtype=int)
                 unique_clusters, local_labels_refined = np.unique(local_labels_refined, return_inverse=True)
                 local_labels_refined += current_max + 1
                 merged_labels_cluster += len(unique_clusters) * [cluster]
                 labels_refined[mask] = local_labels_refined
                 current_max = max(local_labels_refined)
             return labels_refined, np.array(merged_labels_cluster)
-
 
     def fit(self, input_matrix: Union[sparse.csr_matrix, np.ndarray], force_bipartite: bool = False) -> 'Louvain':
         """Fit algorithm to the data.
@@ -284,6 +293,8 @@ class Louvain(BaseClustering, VerboseMixin):
         else:
             raise ValueError('Unknown modularity function.')
 
+        cluster_probs_ou = probs_ou.copy()
+        cluster_probs_in = probs_in.copy()
         nodes = np.arange(n)
         if self.shuffle_nodes:
             nodes = self.random_state.permutation(nodes)
@@ -298,26 +309,29 @@ class Louvain(BaseClustering, VerboseMixin):
         self.log.print("Starting with", n, "nodes.")
         while increase:
             count_aggregations += 1
-
-            labels_cluster, pass_increase = self._optimize(adjacency_cluster, probs_ou, probs_in, labels_cluster)
+            if self.refinement:
+                labels_cluster, pass_increase = self._optimize(adjacency_cluster, probs_ou, probs_in, cluster_probs_ou,
+                                                               cluster_probs_in, labels_cluster)
+            else:
+                labels_cluster, pass_increase = self._optimize(adjacency_cluster, probs_ou, probs_in)
             _, labels_cluster = np.unique(labels_cluster, return_inverse=True)
             if pass_increase <= self.tol_aggregation:
                 increase = False
             else:
                 if self.refinement:
                     labels_refined, labels_cluster = self._refine(adjacency_cluster, labels_cluster)
-                    if max(labels_refined) == 0:
-                        break
                     membership_cluster = membership_matrix(labels_refined)
                     membership = membership.dot(membership_cluster)
+                    membership_labels = membership_matrix(labels_cluster)
                     adjacency_cluster, probs_ou, probs_in = self._aggregate(adjacency_cluster, probs_ou, probs_in,
                                                                             membership_cluster)
+                    cluster_probs_ou = np.array(membership_labels.T.dot(probs_ou).T)
+                    cluster_probs_in = np.array(membership_labels.T.dot(probs_in).T)
                 else:
                     membership_cluster = membership_matrix(labels_cluster)
                     membership = membership.dot(membership_cluster)
                     adjacency_cluster, probs_ou, probs_in = self._aggregate(adjacency_cluster, probs_ou, probs_in,
                                                                             membership_cluster)
-                    labels_cluster = np.arange(adjacency_cluster.shape[0], dtype=int)
 
                 n = adjacency_cluster.shape[0]
                 if n == 1:
@@ -326,7 +340,8 @@ class Louvain(BaseClustering, VerboseMixin):
                            pass_increase, "increment.")
             if count_aggregations == self.n_aggregations:
                 break
-
+        if self.refinement:
+            membership = membership.dot(membership_labels)
         if self.sort_clusters:
             labels = reindex_labels(membership.indices)
         else:
