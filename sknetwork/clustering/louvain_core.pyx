@@ -92,12 +92,12 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
 
     cdef queue[int_or_long] nodes
     cdef queue[int_or_long] next_nodes
+    cdef vector[bint] added_to_queue
     cdef vector[int_or_long] labels
     cdef vector[float] neighbor_clusters_weights
     cdef vector[float] ou_clusters_weights
     cdef vector[float] in_clusters_weights
     cdef set[int_or_long] unique_clusters = ()
-    cdef set[int] queue_elements = ()
 
     srand(seed)
 
@@ -108,7 +108,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
 
     for i in range(n):
         next_nodes.push(i)
-        queue_elements.insert(i)
+        added_to_queue.push_back(1)
         labels.push_back(labels_array[i])
 
     while increase == 1 and not next_nodes.empty():
@@ -123,7 +123,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
             i = nodes.front()
             nodes.pop()
             if fast_move:
-                queue_elements.erase(i)
+                added_to_queue[i] = 0
             else:
                 next_nodes.push(i)
             cluster_node = labels[i]
@@ -167,9 +167,8 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                         labels[i] = cluster
                         if fast_move:
                             for j in range(j1, j2):
-                                if labels[indices[j]] != cluster and \
-                                    queue_elements.find(indices[j]) == queue_elements.end():
-                                    queue_elements.insert(indices[j])
+                                if labels[indices[j]] != cluster and added_to_queue[indices[j]] == 0:
+                                    added_to_queue[indices[j]] = 1
                                     next_nodes.push(indices[j])
 
                     neighbor_clusters_weights[cluster] = 0
@@ -217,9 +216,8 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                         labels[i] = cluster_best
                         if fast_move:
                             for j in range(j1, j2):
-                                if labels[indices[j]] != cluster_best and \
-                                    queue_elements.find(indices[j]) == queue_elements.end():
-                                    queue_elements.insert(indices[j])
+                                if labels[indices[j]] != cluster and added_to_queue[indices[j]] == 0:
+                                    added_to_queue[indices[j]] = 1
                                     next_nodes.push(indices[j])
 
                     unique_clusters.clear()
