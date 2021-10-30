@@ -2,6 +2,7 @@
 # cython: language_level=3
 # cython: linetrace=True
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
+from libc.stdlib cimport rand, srand
 from libcpp.set cimport set
 from libcpp.vector cimport vector
 cimport cython
@@ -9,6 +10,16 @@ cimport cython
 ctypedef fused int_or_long:
     int
     long
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef inline int_or_long randint(int_or_long lower, int_or_long upper) nogil:
+    if upper == lower:
+        return lower
+    else:
+        return ( rand() % (upper - lower) ) + lower
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -42,16 +53,19 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
     total_increase :
         Score of the clustering (total increase in modularity).
     """
+    cdef bint increase = 1
+    cdef bint chain
     cdef int_or_long n = indptr.shape[0] - 1
-    cdef int_or_long increase = 1
     cdef int_or_long cluster
     cdef int_or_long cluster_best
     cdef int_or_long cluster_node
     cdef int_or_long i
     cdef int_or_long j
+    cdef int_or_long k
     cdef int_or_long j1
     cdef int_or_long j2
     cdef int_or_long label
+    cdef int_or_long n_candidates
 
     cdef float increase_total = 0
     cdef float increase_pass
@@ -65,6 +79,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
     cdef float ratio_ou
 
     cdef vector[int_or_long] labels
+    cdef vector[int_or_long] next_candidates
     cdef vector[float] neighbor_clusters_weights
     cdef vector[float] ou_clusters_weights
     cdef vector[float] in_clusters_weights
@@ -76,7 +91,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
         ou_clusters_weights.push_back(ou_node_probs[i])
         in_clusters_weights.push_back(in_node_probs[i])
 
-    while increase == 1:
+    while increase:
         increase = 0
         increase_pass = 0
 
@@ -118,6 +133,8 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
 
                     neighbor_clusters_weights[cluster] = 0
 
+                neighbor_clusters_weights[cluster_node] = 0
+
                 if delta_best > 0:
                     increase_pass += delta_best
                     ou_clusters_weights[cluster_node] -= node_prob_ou
@@ -126,7 +143,62 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                     in_clusters_weights[cluster_best] += node_prob_in
                     labels[i] = cluster_best
 
-            neighbor_clusters_weights[cluster_node] = 0
+
+                    chain = 1
+                    k = i
+                    while chain:
+                        chain = 0
+                        n_candidates = 0
+                        j1 = indptr[k]
+                        j2 = indptr[k + 1]
+                        for j in range(j1, j2):
+                            if labels[indices[j]] != cluster_best:
+                                next_candidates.push_back(j)
+                                n_candidates += 1
+                        k = 0
+                        j = indices[next_candidates[randint(k, n_candidates)]]
+                        cluster = labels[j]
+
+                        j1 = indptr[j]
+                        j2 = indptr[j + 1]
+
+                        for k in range(j1, j2):
+                            if labels[indices[k]] == cluster:
+                                neighbor_clusters_weights[cluster] += data[k]
+                            if labels[indices[k]] == cluster_best:
+                                neighbor_clusters_weights[cluster_best] += data[k]
+
+                        node_prob_ou = ou_node_probs[j]
+                        node_prob_in = in_node_probs[j]
+                        ratio_ou = resolution * node_prob_ou
+                        ratio_in = resolution * node_prob_in
+
+                        delta_exit = 2 * (neighbor_clusters_weights[cluster] - self_loops[j])
+                        delta_exit -= ratio_ou * (in_clusters_weights[cluster] - node_prob_in)
+                        delta_exit -= ratio_in * (ou_clusters_weights[cluster] - node_prob_ou)
+
+                        delta = 2 * neighbor_clusters_weights[cluster_best]
+                        delta -= ratio_ou * in_clusters_weights[cluster_best]
+                        delta -= ratio_in * ou_clusters_weights[cluster_best]
+
+                        delta_local = delta - delta_exit
+
+                        if delta_local > 0:
+                            increase_pass += delta_local
+                            ou_clusters_weights[cluster] -= node_prob_ou
+                            in_clusters_weights[cluster] -= node_prob_in
+                            ou_clusters_weights[cluster_best] += node_prob_ou
+                            in_clusters_weights[cluster_best] += node_prob_in
+                            labels[j] = cluster_best
+                            chain = 1
+                            k = j
+
+                        neighbor_clusters_weights[cluster] = 0
+                        neighbor_clusters_weights[cluster_best] = 0
+
+            else:
+                neighbor_clusters_weights[cluster_node] = 0
+
 
         increase_total += increase_pass
         if increase_pass > tol:
