@@ -158,7 +158,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                             j1 = indptr[k]
                             j2 = indptr[k + 1]
                             for j in range(j1, j2):
-                                if labels[indices[j]] != cluster_best:
+                                if labels[indices[j]] != cluster_best and not seen[indices[j]]:
                                     next_candidates.push_back(j)
                                     n_candidates += 1
                             if n_candidates > 0:
