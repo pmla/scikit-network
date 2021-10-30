@@ -155,6 +155,7 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                         while chain:
                             chain = 0
                             n_candidates = 0
+                            next_candidates.swap(vector[int_or_long]())
                             j1 = indptr[k]
                             j2 = indptr[k + 1]
                             for j in range(j1, j2):
