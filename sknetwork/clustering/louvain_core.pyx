@@ -155,46 +155,47 @@ def fit_core(float resolution, float tol, float[:] ou_node_probs, float[:] in_no
                             if labels[indices[j]] != cluster_best:
                                 next_candidates.push_back(j)
                                 n_candidates += 1
-                        k = 0
-                        j = indices[next_candidates[randint(k, n_candidates)]]
-                        cluster = labels[j]
+                        if n_candidates > 0:
+                            k = 0
+                            j = indices[next_candidates[randint(k, n_candidates)]]
+                            cluster = labels[j]
 
-                        j1 = indptr[j]
-                        j2 = indptr[j + 1]
+                            j1 = indptr[j]
+                            j2 = indptr[j + 1]
 
-                        for k in range(j1, j2):
-                            if labels[indices[k]] == cluster:
-                                neighbor_clusters_weights[cluster] += data[k]
-                            if labels[indices[k]] == cluster_best:
-                                neighbor_clusters_weights[cluster_best] += data[k]
+                            for k in range(j1, j2):
+                                if labels[indices[k]] == cluster:
+                                    neighbor_clusters_weights[cluster] += data[k]
+                                if labels[indices[k]] == cluster_best:
+                                    neighbor_clusters_weights[cluster_best] += data[k]
 
-                        node_prob_ou = ou_node_probs[j]
-                        node_prob_in = in_node_probs[j]
-                        ratio_ou = resolution * node_prob_ou
-                        ratio_in = resolution * node_prob_in
+                            node_prob_ou = ou_node_probs[j]
+                            node_prob_in = in_node_probs[j]
+                            ratio_ou = resolution * node_prob_ou
+                            ratio_in = resolution * node_prob_in
 
-                        delta_exit = 2 * (neighbor_clusters_weights[cluster] - self_loops[j])
-                        delta_exit -= ratio_ou * (in_clusters_weights[cluster] - node_prob_in)
-                        delta_exit -= ratio_in * (ou_clusters_weights[cluster] - node_prob_ou)
+                            delta_exit = 2 * (neighbor_clusters_weights[cluster] - self_loops[j])
+                            delta_exit -= ratio_ou * (in_clusters_weights[cluster] - node_prob_in)
+                            delta_exit -= ratio_in * (ou_clusters_weights[cluster] - node_prob_ou)
 
-                        delta = 2 * neighbor_clusters_weights[cluster_best]
-                        delta -= ratio_ou * in_clusters_weights[cluster_best]
-                        delta -= ratio_in * ou_clusters_weights[cluster_best]
+                            delta = 2 * neighbor_clusters_weights[cluster_best]
+                            delta -= ratio_ou * in_clusters_weights[cluster_best]
+                            delta -= ratio_in * ou_clusters_weights[cluster_best]
 
-                        delta_local = delta - delta_exit
+                            delta_local = delta - delta_exit
 
-                        if delta_local > 0:
-                            increase_pass += delta_local
-                            ou_clusters_weights[cluster] -= node_prob_ou
-                            in_clusters_weights[cluster] -= node_prob_in
-                            ou_clusters_weights[cluster_best] += node_prob_ou
-                            in_clusters_weights[cluster_best] += node_prob_in
-                            labels[j] = cluster_best
-                            chain = 1
-                            k = j
+                            if delta_local > 0:
+                                increase_pass += delta_local
+                                ou_clusters_weights[cluster] -= node_prob_ou
+                                in_clusters_weights[cluster] -= node_prob_in
+                                ou_clusters_weights[cluster_best] += node_prob_ou
+                                in_clusters_weights[cluster_best] += node_prob_in
+                                labels[j] = cluster_best
+                                chain = 1
+                                k = j
 
-                        neighbor_clusters_weights[cluster] = 0
-                        neighbor_clusters_weights[cluster_best] = 0
+                            neighbor_clusters_weights[cluster] = 0
+                            neighbor_clusters_weights[cluster_best] = 0
 
             else:
                 neighbor_clusters_weights[cluster_node] = 0
