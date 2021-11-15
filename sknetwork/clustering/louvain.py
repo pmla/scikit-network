@@ -214,7 +214,7 @@ class Louvain(BaseClustering, VerboseMixin):
         membership = sparse.identity(n, format='csr')
 
         if self.trim:
-            n_bef, n_aft = n, -1
+            n_bef, n_aft = n + 1, n
             while n_aft < n_bef:
                 # TODO: Handle directed graphs
                 degrees = adjacency_cluster.indptr[1:] - adjacency_cluster.indptr[:-1]
@@ -227,7 +227,7 @@ class Louvain(BaseClustering, VerboseMixin):
                 membership = membership.dot(membership_cluster)
                 adjacency_cluster, probs_out, probs_in = self._aggregate(adjacency_cluster,
                                                                          probs_out, probs_in, membership_cluster)
-                n_aft = adjacency_cluster.shape[0]
+                n_bef, n_aft = n_aft, adjacency_cluster.shape[0]
 
         increase = True
         count_aggregations = 0
