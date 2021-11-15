@@ -225,9 +225,11 @@ class Louvain(BaseClustering, VerboseMixin):
                 neighbors = adjacency_cluster[mask].indices
                 labels = np.arange(adjacency_cluster.shape[0], dtype=int)
                 labels[mask] = labels[neighbors]
-                membership = membership_matrix(labels)
+                print(adjacency_cluster.shape[0], labels.shape)
+                membership_cluster = membership_matrix(labels)
+                membership = membership.dot(membership_cluster)
                 adjacency_cluster, probs_out, probs_in = self._aggregate(adjacency_cluster,
-                                                                         probs_out, probs_in, membership)
+                                                                         probs_out, probs_in, membership_cluster)
 
             labels_cluster, pass_increase = self._optimize(adjacency_cluster, probs_out, probs_in)
             _, labels_cluster = np.unique(labels_cluster, return_inverse=True)
