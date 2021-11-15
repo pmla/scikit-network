@@ -95,7 +95,7 @@ class Louvain(BaseClustering, VerboseMixin):
     """
     def __init__(self, resolution: float = 1, modularity: str = 'dugue', tol_optimization: float = 1e-3,
                  tol_aggregation: float = 1e-3, n_aggregations: int = -1, shuffle_nodes: bool = False,
-                 sort_clusters: bool = True, trim: bool = True, return_membership: bool = True,
+                 sort_clusters: bool = True, trim: bool = False, return_membership: bool = True,
                  return_aggregate: bool = True, random_state: Optional[Union[np.random.RandomState, int]] = None,
                  verbose: bool = False):
         super(Louvain, self).__init__(sort_clusters=sort_clusters, return_membership=return_membership,
@@ -212,13 +212,10 @@ class Louvain(BaseClustering, VerboseMixin):
         adjacency_cluster = adjacency / adjacency.data.sum()
 
         membership = sparse.identity(n, format='csr')
-        increase = True
-        count_aggregations = 0
-        self.log.print("Starting with", n, "nodes.")
-        while increase:
-            count_aggregations += 1
 
-            if self.trim:
+        if self.trim:
+            n_bef, n_aft = n, -1
+            while n_aft < n_bef:
                 # TODO: Handle directed graphs
                 degrees = adjacency_cluster.indptr[1:] - adjacency_cluster.indptr[:-1]
                 mask = degrees == 1
@@ -226,11 +223,17 @@ class Louvain(BaseClustering, VerboseMixin):
                 labels_cluster = np.arange(adjacency_cluster.shape[0], dtype=int)
                 labels_cluster[mask] = labels_cluster[neighbors]
                 _, labels_cluster = np.unique(labels_cluster, return_inverse=True)
-                print(adjacency_cluster.shape[0], labels_cluster.shape)
                 membership_cluster = membership_matrix(labels_cluster)
                 membership = membership.dot(membership_cluster)
                 adjacency_cluster, probs_out, probs_in = self._aggregate(adjacency_cluster,
                                                                          probs_out, probs_in, membership_cluster)
+                n_aft = adjacency_cluster.shape[0]
+
+        increase = True
+        count_aggregations = 0
+        self.log.print("Starting with", n, "nodes.")
+        while increase:
+            count_aggregations += 1
 
             labels_cluster, pass_increase = self._optimize(adjacency_cluster, probs_out, probs_in)
             _, labels_cluster = np.unique(labels_cluster, return_inverse=True)
