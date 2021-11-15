@@ -95,8 +95,9 @@ class Louvain(BaseClustering, VerboseMixin):
     """
     def __init__(self, resolution: float = 1, modularity: str = 'dugue', tol_optimization: float = 1e-3,
                  tol_aggregation: float = 1e-3, n_aggregations: int = -1, shuffle_nodes: bool = False,
-                 sort_clusters: bool = True, return_membership: bool = True, return_aggregate: bool = True,
-                 random_state: Optional[Union[np.random.RandomState, int]] = None, verbose: bool = False):
+                 sort_clusters: bool = True, trim: bool = True, return_membership: bool = True,
+                 return_aggregate: bool = True, random_state: Optional[Union[np.random.RandomState, int]] = None,
+                 verbose: bool = False):
         super(Louvain, self).__init__(sort_clusters=sort_clusters, return_membership=return_membership,
                                       return_aggregate=return_aggregate)
         VerboseMixin.__init__(self, verbose)
@@ -109,6 +110,7 @@ class Louvain(BaseClustering, VerboseMixin):
         self.shuffle_nodes = shuffle_nodes
         self.random_state = check_random_state(random_state)
         self.bipartite = None
+        self.trim = trim
 
     def _optimize(self, adjacency_norm, probs_ou, probs_in):
         """One local optimization pass of the Louvain algorithm
@@ -215,6 +217,17 @@ class Louvain(BaseClustering, VerboseMixin):
         self.log.print("Starting with", n, "nodes.")
         while increase:
             count_aggregations += 1
+
+            if self.trim:
+                # TODO: Handle directed graphs
+                degrees = adjacency_cluster.indptr[1:] - adjacency_cluster.indptr[:-1]
+                mask = degrees == 1
+                neighbors = adjacency_cluster[mask].indices
+                labels = np.arange(adjacency_cluster.shape[0], dtype=int)
+                labels[mask] = labels[neighbors]
+                membership = membership_matrix(labels)
+                adjacency_cluster, probs_out, probs_in = self._aggregate(adjacency_cluster,
+                                                                         probs_out, probs_in, membership)
 
             labels_cluster, pass_increase = self._optimize(adjacency_cluster, probs_out, probs_in)
             _, labels_cluster = np.unique(labels_cluster, return_inverse=True)
